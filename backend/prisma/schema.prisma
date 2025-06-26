@@ -1,0 +1,123 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String   @id @default(uuid()) @db.Uuid
+  scenarioType  String   @map("scenario_type") @db.VarChar(50)
+  status        String   @default("active") @db.VarChar(20)
+  clerkUserId   String   @map("clerk_user_id") @db.VarChar(255)
+  roomName      String?  @map("room_name") @db.VarChar(255)
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  transcriptions   Transcription[]
+  aiSuggestions    AiSuggestion[]
+  sessionSummaries SessionSummary[]
+
+  @@index([clerkUserId])
+  @@index([status])
+  @@map("sessions")
+}
+
+model Transcription {
+  id         String   @id @default(uuid()) @db.Uuid
+  sessionId  String   @map("session_id") @db.Uuid
+  text       String
+  confidence Decimal? @default(0.95) @db.Decimal(3, 2)
+  timestamp  DateTime @default(now()) @db.Timestamptz
+  speaker    String?  @default("user") @db.VarChar(50)
+  duration   Decimal? @db.Decimal(10, 3)
+  chunkIndex Int?     @map("chunk_index")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([timestamp])
+  @@map("transcriptions")
+}
+
+model AiSuggestion {
+  id           String   @id @default(uuid()) @db.Uuid
+  sessionId    String   @map("session_id") @db.Uuid
+  type         String   @db.VarChar(50)
+  content      String
+  priority     String   @default("medium") @db.VarChar(20)
+  context      String?
+  confidence   Decimal? @default(0.8) @db.Decimal(3, 2)
+  acknowledged Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([acknowledged])
+  @@map("ai_suggestions")
+}
+
+model SessionSummary {
+  id                      String   @id @default(uuid()) @db.Uuid
+  sessionId               String   @unique @map("session_id") @db.Uuid
+  keyTopics               String[] @map("key_topics")
+  mainConcerns            String[] @map("main_concerns")
+  progressNotes           String   @map("progress_notes")
+  nextSteps               String[] @map("next_steps")
+  riskAssessment          String   @map("risk_assessment")
+  overallSummary          String   @map("overall_summary")
+  sessionDurationMinutes  Int      @map("session_duration_minutes")
+  transcriptLength        Int      @map("transcript_length")
+  transcriptionCount      Int      @map("transcription_count")
+  confidence              Decimal  @default(0.9) @db.Decimal(3, 2)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  // Relations
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@map("session_summaries")
+}
+
+// Enums for type safety
+enum ScenarioType {
+  in_person
+  call_center
+  conference
+}
+
+enum SessionStatus {
+  active
+  completed
+  paused
+}
+
+enum SuggestionType {
+  followup_question
+  resource
+  action_item
+  concern_flag
+}
+
+enum Priority {
+  low
+  medium
+  high
+  urgent
+}
