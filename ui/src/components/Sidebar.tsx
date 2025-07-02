@@ -16,13 +16,14 @@ const Sidebar: React.FC = () => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <div className="w-64 bg-white border-r border-gray-200 flex flex-col h-full flex-shrink-0">
+    <div className="w-64 bg-background flex flex-col h-full flex-shrink-0">
       {/* Header */}
-      <div className="p-6 border-b border-gray-200 flex-shrink-0">
-        <h1 className="text-xl font-semibold text-gray-900">
-        Meliora
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">AI-powered assistance</p>
+      <div className="p-6 flex-shrink-0">
+        <img 
+          src="/Elora-logo-H 3.png" 
+          alt="Elora" 
+          className="h-10 w-auto mb-2"
+        />
       </div>
 
       {/* Navigation */}
@@ -36,14 +37,14 @@ const Sidebar: React.FC = () => {
                 <li key={item.path}>
                   <button
                     onClick={() => navigate(item.path)}
-                    className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                    className={`w-full flex items-center space-x-3 px-3 py-1.5 rounded-md text-left transition-colors ${
                       isActive(item.path)
-                        ? 'bg-gray-100 text-gray-900'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                        ? 'bg-gray-200 text-gray-900'
+                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                     }`}
                   >
                     <IconComponent className="w-5 h-5" />
-                    <span className="font-medium">{item.label}</span>
+                    <span className="text-base font-medium">{item.label}</span>
                   </button>
                 </li>
               );
@@ -54,14 +55,14 @@ const Sidebar: React.FC = () => {
       </nav>
 
       {/* User Profile */}
-      <div className="p-4 border-t border-gray-200 flex-shrink-0">
+      <div className="p-4 flex-shrink-0">
         <div className="flex items-center space-x-3">
           <UserButton afterSignOutUrl="/" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-gray-900 truncate">
               Welcome back!
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-sm text-gray-500">
               Ready to assist
             </p>
           </div>

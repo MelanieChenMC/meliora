@@ -12,6 +12,12 @@ interface Session {
   stitched_audio_url?: string;
   full_transcript?: string;
   audio_duration?: number;
+  client?: {
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+  };
   metadata?: {
     title?: string;
     duration?: number;
@@ -340,6 +346,19 @@ const Sessions: React.FC = () => {
                         <div className="font-medium text-gray-900">
                           {session.metadata?.title || `${session.scenario_type.replace('_', ' ')} Session`}
                         </div>
+                        {session.client && (
+                          <div className="text-sm text-gray-500 mt-1">
+                            Client: <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                navigate(`/client/${session.client?.id}`);
+                              }}
+                              className="text-accent hover:text-accent-dark"
+                            >
+                              {session.client?.name}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </td>
                     <td className="py-4 px-6">

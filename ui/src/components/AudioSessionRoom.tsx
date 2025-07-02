@@ -3,8 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '@clerk/clerk-react';
 import { useRealTimeTranscription } from '../hooks/useRealTimeTranscription';
 import { 
-  Mic, MicOff, Settings, Phone, PhoneOff,
-  MessageSquare, Lightbulb, Timer, Wifi, Activity
+  Mic, MicOff, MessageSquare, Lightbulb, Timer, 
+  Save, FileText, Link, Phone, Mail, MapPin,
+  ChevronDown, ChevronRight, X, Plus, Minus, User, Check, Search
 } from 'lucide-react';
 
 interface Session {
@@ -33,6 +34,25 @@ interface AISuggestion {
   acknowledged: boolean;
 }
 
+interface Resource {
+  id: string;
+  title: string;
+  type: 'phone' | 'website' | 'document' | 'email';
+  link: string;
+  description: string;
+  relevance: number;
+}
+
+interface ClientInfo {
+  name: string;
+  age: string;
+  phone: string;
+  email: string;
+  address: string;
+  notes: string;
+  needs: string[];
+}
+
 export default function AudioSessionRoom() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -42,28 +62,39 @@ export default function AudioSessionRoom() {
   const [loading, setLoading] = useState(true);
   const [transcriptions, setTranscriptions] = useState<Transcription[]>([]);
   const [suggestions, setSuggestions] = useState<AISuggestion[]>([]);
-  const [activeTab, setActiveTab] = useState<'transcription' | 'suggestions'>('transcription');
+  const [resources, setResources] = useState<Resource[]>([]);
   const [sessionDuration, setSessionDuration] = useState(0);
-  const [sessionInterval, setSessionInterval] = useState<NodeJS.Timeout | null>(null);
   const [isMuted, setIsMuted] = useState(false);
-  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const [showDebug, setShowDebug] = useState(false);
-  const [volume, setVolume] = useState(1);
-  const [viewMode, setViewMode] = useState<'stream' | 'messages'>('stream');
+  const [clientInfo, setClientInfo] = useState<ClientInfo>({
+    name: '',
+    age: '',
+    phone: '',
+    email: '',
+    address: '',
+    notes: '',
+    needs: []
+  });
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearch, setShowSearch] = useState(true);
+  const [expandedSections, setExpandedSections] = useState<{
+    clientInfo: boolean;
+    previousConversations: boolean;
+    myNotes: boolean;
+  }>({
+    clientInfo: true,
+    previousConversations: false,
+    myNotes: false
+  });
+  const [myNotes, setMyNotes] = useState('');
+  const [showValidationError, setShowValidationError] = useState(false);
+  const [isNewClient, setIsNewClient] = useState(false);
   
   const transcriptionRef = useRef<HTMLDivElement>(null);
   const sessionStartTime = useRef<Date>(new Date());
-
-  // Add audio debugging state
-  const [audioDebugInfo, setAudioDebugInfo] = useState<{
-    devices: MediaDeviceInfo[];
-    currentStream: MediaStreamTrack | null;
-    systemInfo: any;
-  }>({
-    devices: [],
-    currentStream: null,
-    systemInfo: null
-  });
+  const sessionInterval = useRef<NodeJS.Timeout | null>(null);
 
   // Real-time transcription hook
   const {
@@ -85,48 +116,56 @@ export default function AudioSessionRoom() {
     }
   });
 
-  // AI suggestion generation interval
-  const aiGenerationInterval = useRef<NodeJS.Timeout | null>(null);
+  // Mock resources - in production these would come from AI analysis
+  const mockResources: Resource[] = [
+    {
+      id: '1',
+      title: 'Housing Assistance Program',
+      type: 'phone',
+      link: 'tel:1-800-HOUSING',
+      description: 'Emergency housing support and shelter services',
+      relevance: 0.95
+    },
+    {
+      id: '2',
+      title: 'Food Bank Network',
+      type: 'website',
+      link: 'https://foodbank.org',
+      description: 'Local food assistance programs and pantries',
+      relevance: 0.87
+    },
+    {
+      id: '3',
+      title: 'Mental Health Services',
+      type: 'document',
+      link: '/resources/mental-health.pdf',
+      description: 'Free counseling and therapy resources',
+      relevance: 0.82
+    }
+  ];
 
   useEffect(() => {
     if (sessionId) {
       fetchSession();
-      loadExistingSuggestions();
+      setResources(mockResources);
       const timer = startSessionTimer();
       
       return () => {
         if (timer) {
           clearInterval(timer);
         }
-        if (aiGenerationInterval.current) {
-          clearInterval(aiGenerationInterval.current);
-        }
       };
     }
   }, [sessionId]);
 
-  // Set up periodic AI suggestion generation when recording starts
+  // Debounced search
   useEffect(() => {
-    if (isRecording) {
-      console.log('🤖 Starting periodic AI suggestion generation (every 30 seconds)');
-      aiGenerationInterval.current = setInterval(() => {
-        generateAISuggestion();
-      }, 30000); // 30 seconds
-    } else {
-      if (aiGenerationInterval.current) {
-        console.log('🛑 Stopping periodic AI suggestion generation');
-        clearInterval(aiGenerationInterval.current);
-        aiGenerationInterval.current = null;
-      }
-    }
-
-    return () => {
-      if (aiGenerationInterval.current) {
-        clearInterval(aiGenerationInterval.current);
-        aiGenerationInterval.current = null;
-      }
-    };
-  }, [isRecording]);
+    const timer = setTimeout(() => {
+      searchClients(searchQuery);
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   // Auto-scroll transcription
   useEffect(() => {
@@ -146,6 +185,11 @@ export default function AudioSessionRoom() {
       });
       const data = await response.json();
       setSession(data.session);
+      
+      // If session has a client, load their info
+      if (data.session.client) {
+        selectClient(data.session.client);
+      }
     } catch (error) {
       console.error('Error fetching session:', error);
     } finally {
@@ -153,298 +197,268 @@ export default function AudioSessionRoom() {
     }
   };
 
-  const loadExistingSuggestions = async () => {
-    try {
-      const token = await getToken();
-      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-
-      // Load existing AI suggestions only
-      const suggestionsResponse = await fetch(`${backendUrl}/api/sessions/${sessionId}/suggestions`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-
-      if (suggestionsResponse.ok) {
-        const suggestionsData = await suggestionsResponse.json();
-        if (suggestionsData.suggestions && suggestionsData.suggestions.length > 0) {
-          console.log(`💡 Loaded ${suggestionsData.suggestions.length} existing AI suggestions`);
-          const formattedSuggestions = suggestionsData.suggestions.map((s: any) => ({
-            id: s.id,
-            type: s.type,
-            content: s.content,
-            priority: s.priority,
-            acknowledged: s.acknowledged
-          }));
-          setSuggestions(formattedSuggestions);
-        }
-      }
-    } catch (error) {
-      console.error('Error loading existing suggestions:', error);
-    }
+  const startSessionTimer = () => {
+    const timer = setInterval(() => {
+      const now = new Date();
+      const duration = Math.floor((now.getTime() - sessionStartTime.current.getTime()) / 1000);
+      setSessionDuration(duration);
+    }, 1000);
+    sessionInterval.current = timer;
+    return timer;
   };
 
-  const startSessionTimer = () => {
-    const interval = setInterval(() => {
-      setSessionDuration(Math.floor((Date.now() - sessionStartTime.current.getTime()) / 1000));
-    }, 1000);
-    setSessionInterval(interval);
-    return interval;
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
   const handleStartRecording = async () => {
-    await startRecording();
-  };
-
-  const handleStopRecording = () => {
-    stopRecording();
-  };
-
-  const generateAISuggestion = async () => {
     try {
-      const token = await getToken();
-      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-      
-      console.log('🤖 Generating AI suggestions...');
-      
-      const response = await fetch(`${backendUrl}/api/sessions/${sessionId}/generate-suggestions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.warn('⚠️ Failed to generate AI suggestions:', errorText);
-        return;
-      }
-
-      const result = await response.json();
-      
-      if (result.suggestions && result.suggestions.length > 0) {
-        console.log(`✅ Generated ${result.suggestions.length} AI suggestions`);
-        
-        // Add the new suggestions to the UI
-        const newSuggestions: AISuggestion[] = result.suggestions.map((s: any) => ({
-          id: s.id,
-          type: s.type,
-          content: s.content,
-          priority: s.priority,
-          acknowledged: s.acknowledged
-        }));
-        
-        setSuggestions(prev => [...prev, ...newSuggestions]);
-      } else {
-        console.log('ℹ️ No AI suggestions generated:', result.message || 'No recent conversation');
-      }
+      await startRecording();
     } catch (error) {
-      console.error('❌ Error generating AI suggestions:', error);
+      console.error('Failed to start recording:', error);
     }
   };
 
-  const acknowledgeSuggestion = async (id: string) => {
+  const handleStopRecording = async () => {
     try {
-      // Optimistically update the UI
-      setSuggestions(prev => 
-        prev.map(s => s.id === id ? { ...s, acknowledged: true } : s)
-      );
+      await stopRecording();
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+    }
+  };
 
-      // Save to database
+  const endSession = async () => {
+    if (isRecording) {
+      await handleStopRecording();
+    }
+    
+    // Update session status to completed
+    try {
       const token = await getToken();
       const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
       
-      const response = await fetch(`${backendUrl}/api/sessions/${sessionId}/suggestions`, {
+      const response = await fetch(`${backendUrl}/api/sessions/${sessionId}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          suggestionId: id,
-          acknowledged: true
+          status: 'completed'
         }),
       });
-
+      
       if (!response.ok) {
-        console.warn('⚠️ Failed to save suggestion acknowledgment:', await response.text());
-        // Revert the optimistic update
-        setSuggestions(prev => 
-          prev.map(s => s.id === id ? { ...s, acknowledged: false } : s)
-        );
-      } else {
-        console.log('✅ Suggestion acknowledgment saved');
+        console.error('Failed to update session status');
       }
     } catch (error) {
-      console.error('❌ Error acknowledging suggestion:', error);
-      // Revert the optimistic update
-      setSuggestions(prev => 
-        prev.map(s => s.id === id ? { ...s, acknowledged: false } : s)
-      );
+      console.error('Error ending session:', error);
     }
+    
+    navigate('/');
   };
 
-  const endSession = async () => {
-    if (window.confirm('Are you sure you want to end this session?')) {
-      try {
-        stopRecording();
-        
-        const token = await getToken();
-        const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
-        
-        // Calculate final session duration
-        const finalDuration = Math.floor((Date.now() - sessionStartTime.current.getTime()) / 1000);
-        
-        // Update session with completion data
-        const updateData = {
-          status: 'completed',
-          metadata: {
-            ...session?.metadata,
-            duration: finalDuration,
-            transcription_count: transcriptions.length,
-            ai_suggestions_count: suggestions.length,
-            ended_at: new Date().toISOString()
-          }
-        };
-        
-        console.log('🏁 Ending session with data:', updateData);
-        
-        const response = await fetch(`${backendUrl}/api/sessions/${sessionId}`, {
-          method: 'PATCH',
+  const searchClients = async (query: string) => {
+    if (!query || query.length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    
+    setIsSearching(true);
+    try {
+      const token = await getToken();
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+      
+      const response = await fetch(
+        `${backendUrl}/api/clients?search=${encodeURIComponent(query)}`,
+        {
           headers: {
-            'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify(updateData),
-        });
-        
-        if (!response.ok) {
-          throw new Error(`Failed to update session: ${response.statusText}`);
         }
-        
-        const result = await response.json();
-        console.log('✅ Session ended successfully:', result);
-        
-        // Trigger post-processing (audio stitching + AI summary) in the background
-        if (transcriptions.length > 0) {
-          console.log('🔗 Triggering background post-processing...');
-          fetch(`${backendUrl}/api/sessions/${sessionId}/post-processing`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-          }).then(postProcessResponse => {
-            if (postProcessResponse.ok) {
-              console.log('✅ Post-processing completed successfully');
-            } else {
-              console.warn('⚠️ Post-processing failed, will retry on first play');
-            }
-          }).catch(postProcessError => {
-            console.warn('⚠️ Post-processing error:', postProcessError);
-          });
-        }
-        
-        // Navigate to sessions page to see the completed session
-        navigate('/sessions');
-      } catch (error) {
-        console.error('Error ending session:', error);
-        // Still navigate even if update failed
-        navigate('/sessions');
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        setSearchResults(data.clients || []);
       }
+    } catch (error) {
+      console.error('Error searching clients:', error);
+    } finally {
+      setIsSearching(false);
     }
   };
 
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  const selectClient = async (client: any) => {
+    setClientId(client.id);
+    setClientInfo({
+      name: client.name || '',
+      age: client.age || '',
+      phone: client.phone || '',
+      email: client.email || '',
+      address: client.address || '',
+      notes: client.notes || '',
+      needs: []
+    });
+    setShowSearch(false);
+    setSearchQuery('');
+    setSearchResults([]);
+    setIsNewClient(false);
+    
+    // Immediately update the session with this client
+    await updateSessionClient(client.id);
   };
 
-  // Audio debugging function
-  const debugAudioDevices = async () => {
+  const startNewClient = () => {
+    setClientId(null);
+    setClientInfo({
+      name: '',
+      age: '',
+      phone: '',
+      email: '',
+      address: '',
+      notes: '',
+      needs: []
+    });
+    setShowSearch(false);
+    setIsNewClient(true);
+  };
+
+  const saveClientInfo = async () => {
+    // Check if all fields are filled
+    if (!clientInfo.name || !clientInfo.age || !clientInfo.phone || !clientInfo.email || !clientInfo.address) {
+      setShowValidationError(true);
+      return;
+    }
+    
+    // Hide validation error if shown
+    setShowValidationError(false);
+    
     try {
-      console.log('🔍 Debugging audio devices...');
+      const token = await getToken();
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
       
-      // Get all devices
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices.filter(device => device.kind === 'audioinput');
-      
-      console.log('📱 All audio input devices:', audioInputs);
-      
-      // Get system information
-      const systemInfo = {
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        language: navigator.language,
-        cookieEnabled: navigator.cookieEnabled
-      };
-      
-      // Test different audio constraints
-      const constraints = [
-        { audio: true }, // Default
-        { audio: { deviceId: 'default' } }, // Explicit default
-        { audio: { deviceId: { exact: 'default' } } }, // Exact default
-      ];
-      
-      console.log('🎤 Testing different audio constraints...');
-      
-      for (let i = 0; i < constraints.length; i++) {
-        try {
-          console.log(`Testing constraint ${i + 1}:`, constraints[i]);
-          const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
-          const tracks = stream.getAudioTracks();
+      if (isNewClient && !clientId) {
+        // Create new client
+        const response = await fetch(`${backendUrl}/api/clients`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(clientInfo),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setClientId(data.client.id);
+          setIsNewClient(false);
           
-          console.log(`✅ Constraint ${i + 1} worked:`, tracks.map(track => ({
-            label: track.label,
-            kind: track.kind,
-            enabled: track.enabled,
-            muted: track.muted,
-            settings: track.getSettings(),
-            capabilities: track.getCapabilities()
-          })));
-          
-          // Stop the stream
-          stream.getTracks().forEach(track => track.stop());
-          
-          // Use the first working stream info for debugging
-          if (i === 0) {
-            setAudioDebugInfo({
-              devices: audioInputs,
-              currentStream: tracks[0] || null,
-              systemInfo
-            });
-          }
-          
-        } catch (error) {
-          console.error(`❌ Constraint ${i + 1} failed:`, error);
+          // Update session with client ID
+          await updateSessionClient(data.client.id);
         }
+      } else if (clientId) {
+        // Update existing client
+        await fetch(`${backendUrl}/api/clients/${clientId}`, {
+          method: 'PATCH',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(clientInfo),
+        });
+        
+        // Also ensure the session is linked to this client
+        await updateSessionClient(clientId);
       }
       
+      // Collapse the section after saving
+      setExpandedSections(prev => ({
+        ...prev,
+        clientInfo: false
+      }));
     } catch (error) {
-      console.error('Error debugging audio:', error);
+      console.error('Error saving client info:', error);
+      alert('Failed to save client information');
+    }
+  };
+
+  const updateSessionClient = async (newClientId: string) => {
+    try {
+      const token = await getToken();
+      const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+      
+      const response = await fetch(`${backendUrl}/api/sessions/${sessionId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: newClientId,
+          metadata: session?.metadata || {}
+        }),
+      });
+      
+      if (!response.ok) {
+        console.error('Failed to update session client:', response.status);
+      } else {
+        console.log('Successfully linked client to session');
+      }
+    } catch (error) {
+      console.error('Error updating session client:', error);
+    }
+  };
+
+
+  const getResourceIcon = (type: string) => {
+    switch (type) {
+      case 'phone': return Phone;
+      case 'website': return Link;
+      case 'email': return Mail;
+      case 'document': return FileText;
+      default: return FileText;
+    }
+  };
+
+  const toggleSection = (section: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({
+      ...prev,
+      [section]: !prev[section]
+    }));
+    // Clear validation error when toggling sections
+    if (section === 'clientInfo') {
+      setShowValidationError(false);
     }
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-        <div className="text-center text-white">
-          <div className="animate-spin w-12 h-12 border-4 border-white border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p>Loading session...</p>
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-12 h-12 border-4 border-accent border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-text-secondary">Loading session...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="h-screen bg-white text-gray-900 flex flex-col">
-      {/* Top Bar */}
-      <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-b border-gray-200">
+    <div className="h-screen bg-background flex flex-col">
+      {/* Header - No border, blends with background */}
+      <div className="bg-background px-6 py-4 flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold text-gray-800">
+          <h1 className="text-xl font-semibold text-text-primary">
             {session?.metadata?.title || 'In-Person Session'}
           </h1>
-          <div className="flex items-center space-x-2 text-sm text-gray-600">
+          <div className="flex items-center space-x-2 text-sm text-text-secondary">
             <Timer className="h-4 w-4" />
             <span>{formatDuration(sessionDuration)}</span>
           </div>
@@ -459,8 +473,8 @@ export default function AudioSessionRoom() {
         <div className="flex items-center space-x-3">
           <button
             onClick={() => setIsMuted(!isMuted)}
-            className={`p-2 rounded-lg transition-colors ${
-              isMuted ? 'bg-red-100 hover:bg-red-200 text-red-700' : 'bg-gray-200 hover:bg-gray-300 text-gray-700'
+            className={`p-1.5 rounded-md transition-colors ${
+              isMuted ? 'bg-red-100 hover:bg-red-200 text-red-700' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
             }`}
           >
             {isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
@@ -468,77 +482,259 @@ export default function AudioSessionRoom() {
           
           <button
             onClick={isRecording ? handleStopRecording : handleStartRecording}
-            className={`px-4 py-2 rounded-lg transition-colors ${
+            className={`px-3 py-1.5 rounded-md transition-colors font-medium text-sm ${
               isRecording 
-                ? 'bg-red-100 hover:bg-red-200 text-red-700' 
-                : 'bg-blue-100 hover:bg-blue-200 text-blue-700'
+                ? 'bg-red-600 hover:bg-red-700 text-white' 
+                : 'bg-accent hover:bg-accent-dark text-white'
             }`}
           >
-            {isRecording ? 'Stop' : 'Start'}
+            {isRecording ? 'Stop Recording' : 'Start Recording'}
           </button>
           
           <button
             onClick={endSession}
-            className="bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-lg transition-colors"
+            className="text-text-secondary hover:text-text-primary transition-colors text-sm px-3 py-1.5"
           >
             End Session
-          </button>
-          
-          <button
-            onClick={() => setShowDebug(!showDebug)}
-            className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-2 rounded-lg transition-colors text-xs"
-          >
-            🔧 Debug
-          </button>
-          
-          <button
-            onClick={debugAudioDevices}
-            className="bg-blue-200 hover:bg-blue-300 text-blue-700 px-3 py-2 rounded-lg transition-colors text-xs"
-          >
-            🎤 Test Mic
           </button>
         </div>
       </div>
 
-      {/* Error Messages */}
-      {transcriptionError && (
-        <div className="bg-red-50 border-b border-red-200 text-red-800 px-6 py-3">
-          <p>Error: {transcriptionError}</p>
-        </div>
-      )}
-
-      {showDebug && (
-        <div className="bg-yellow-50 border-b border-yellow-200 text-yellow-800 px-6 py-4">
-          <h3 className="font-semibold mb-2">🔧 Audio Debug Info</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p><strong>Recording Status:</strong> {isRecording ? '🔴 Recording' : '⚫ Stopped'}</p>
-              <p><strong>Processing:</strong> {isProcessing ? '⏳ Processing' : '✅ Ready'}</p>
-              <p><strong>Transcriptions:</strong> {transcriptions.length} segments</p>
-              <p><strong>Last transcription:</strong> {transcriptions.length > 0 ? `"${transcriptions[transcriptions.length - 1].text.substring(0, 50)}..."` : 'None'}</p>
+      {/* Main Content - Two Column Layout */}
+      <div className="flex-1 flex gap-6 px-6 pb-6 min-h-0">
+        {/* Left Column - Client Information and Transcript */}
+        <div className="w-1/2 flex flex-col gap-6 min-w-0">
+          {/* Collapsible Sections */}
+          <div className="bg-white shadow-sm border border-border overflow-y-auto">
+            {/* Client Information Section */}
+            <div className="border-b border-gray-200">
+              <button
+                onClick={() => toggleSection('clientInfo')}
+                className="w-full px-4 py-2 flex items-center hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+                  {expandedSections.clientInfo ? 
+                    <Minus className="h-3 w-3 text-gray-600" /> : 
+                    <Plus className="h-3 w-3 text-gray-600" />
+                  }
+                </div>
+                <h3 className="font-medium text-lg text-text-primary flex-1 text-left">Client Information</h3>
+                {/* Show green check if client is selected or all fields are filled */}
+                {!expandedSections.clientInfo && (clientId || (clientInfo.name && clientInfo.age && clientInfo.phone && clientInfo.email && clientInfo.address)) && (
+                  <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center mr-3">
+                    <Check className="h-3 w-3 text-green-600" />
+                  </div>
+                )}
+                {expandedSections.clientInfo && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      saveClientInfo();
+                    }}
+                    className="text-accent hover:text-accent-dark transition-colors"
+                  >
+                    <Save className="h-4 w-4" />
+                  </button>
+                )}
+              </button>
+              {expandedSections.clientInfo && (
+                <div className="px-4 pb-4 space-y-3">
+            {showValidationError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-sm">
+                Please fill in all required fields
+              </div>
+            )}
+            
+            {/* Client Search */}
+            {showSearch && (
+              <div className="space-y-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search existing client by name, phone, or email..."
+                    className="w-full pl-10 pr-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+                  />
+                </div>
+                
+                {/* Search Results */}
+                {(searchResults.length > 0 || searchQuery.length >= 2) && (
+                  <div className="border border-gray-200 rounded-md max-h-48 overflow-y-auto">
+                    {searchResults.length > 0 ? (
+                      searchResults.map((client) => (
+                        <button
+                          key={client.id}
+                          onClick={() => selectClient(client)}
+                          className="w-full px-3 py-2 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
+                        >
+                          <div className="font-medium text-sm">{client.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {client.phone} • {client.email}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-3 text-center">
+                        <p className="text-sm text-gray-500">No clients found</p>
+                        <button
+                          onClick={startNewClient}
+                          className="mt-2 text-sm text-accent hover:text-accent-dark font-medium"
+                        >
+                          Create new client
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+                
+                <button
+                  onClick={startNewClient}
+                  className="w-full py-2 border-2 border-dashed border-gray-300 rounded-md text-sm text-gray-600 hover:border-gray-400 hover:text-gray-700 transition-colors"
+                >
+                  + Add new client
+                </button>
+              </div>
+            )}
+            
+            {/* Client Form */}
+            {!showSearch && (
+              <>
+                {!isNewClient && clientId && (
+                  <div className="flex items-center justify-between p-2 bg-green-50 border border-green-200 rounded-md">
+                    <span className="text-sm text-green-700">Existing client selected</span>
+                    <button
+                      onClick={() => {
+                        setShowSearch(true);
+                        setClientId(null);
+                      }}
+                      className="text-sm text-green-600 hover:text-green-700 font-medium"
+                    >
+                      Change
+                    </button>
+                  </div>
+                )}
+                
+                <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Name</label>
+              <input
+                type="text"
+                value={clientInfo.name}
+                onChange={(e) => setClientInfo(prev => ({ ...prev, name: e.target.value }))}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+                placeholder="Enter client name"
+                required
+              />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Age</label>
+                <input
+                  type="text"
+                  value={clientInfo.age}
+                  onChange={(e) => setClientInfo(prev => ({ ...prev, age: e.target.value }))}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+                  placeholder="Enter age"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-700 mb-1.5">Phone</label>
+                <input
+                  type="tel"
+                  value={clientInfo.phone}
+                  onChange={(e) => setClientInfo(prev => ({ ...prev, phone: e.target.value }))}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+                  placeholder="Enter phone number"
+                  required
+                />
+              </div>
+            </div>
+
             <div>
-              <p><strong>🚨 Audio Source Problem Detected!</strong></p>
-              <p className="text-xs mt-1">The transcription shows generic phrases like "Thank you for watching" or "Bye bye" - this means your browser is picking up audio from:</p>
-              <ul className="text-xs mt-2 space-y-1">
-                <li>• <strong>Other browser tabs</strong> (YouTube, Netflix, etc.)</li>
-                <li>• <strong>Background apps</strong> (Spotify, podcasts, etc.)</li>
-                <li>• <strong>Other transcription services</strong> (Otter.ai, etc.)</li>
-                <li>• <strong>System audio sharing</strong> (screen recording apps)</li>
-              </ul>
-              <p className="text-xs mt-2 font-semibold">Quick Fix: Close all other audio sources and try again!</p>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Email</label>
+              <input
+                type="email"
+                value={clientInfo.email}
+                onChange={(e) => setClientInfo(prev => ({ ...prev, email: e.target.value }))}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+                placeholder="Enter email address"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-700 mb-1.5">Address</label>
+              <input
+                type="text"
+                value={clientInfo.address}
+                onChange={(e) => setClientInfo(prev => ({ ...prev, address: e.target.value }))}
+                className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors"
+                placeholder="Enter home address"
+                required
+              />
+            </div>
+              </>
+            )}
+                </div>
+              )}
+            </div>
+
+            {/* Previous Conversations Section */}
+            <div className="border-b border-gray-200">
+              <button
+                onClick={() => toggleSection('previousConversations')}
+                className="w-full px-4 py-2 flex items-center hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+                  {expandedSections.previousConversations ? 
+                    <Minus className="h-3 w-3 text-gray-600" /> : 
+                    <Plus className="h-3 w-3 text-gray-600" />
+                  }
+                </div>
+                <h3 className="font-medium text-lg text-text-primary flex-1 text-left">Previous Conversations</h3>
+              </button>
+              {expandedSections.previousConversations && (
+                <div className="px-4 pb-4">
+                  <p className="text-sm text-gray-500 italic">No previous conversations found</p>
+                </div>
+              )}
+            </div>
+
+            {/* My Notes Section */}
+            <div>
+              <button
+                onClick={() => toggleSection('myNotes')}
+                className="w-full px-4 py-2 flex items-center hover:bg-gray-50 transition-colors"
+              >
+                <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center mr-3">
+                  {expandedSections.myNotes ? 
+                    <Minus className="h-3 w-3 text-gray-600" /> : 
+                    <Plus className="h-3 w-3 text-gray-600" />
+                  }
+                </div>
+                <h3 className="font-medium text-lg text-text-primary flex-1 text-left">My Notes</h3>
+              </button>
+              {expandedSections.myNotes && (
+                <div className="px-4 pb-4">
+                  <textarea
+                    value={myNotes}
+                    onChange={(e) => setMyNotes(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent transition-colors resize-none"
+                    rows={6}
+                    placeholder="Add your notes here..."
+                  />
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      )}
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex min-h-0">
-        {/* Left Panel - Transcriptions */}
-        <div className="flex-1 bg-gray-50 border-r border-gray-200 flex flex-col min-w-0">
-          <div className="p-4 border-b border-gray-200 flex-shrink-0">
-            <h2 className="text-lg font-semibold text-gray-800">Transcription</h2>
-
+          {/* Live Transcript */}
+          <div className="bg-white shadow-sm border border-border flex-1 flex flex-col min-h-0">
+          <div className="p-4 border-b border-gray-100">
+            <h2 className="text-lg font-semibold text-text-primary">Live Transcript</h2>
           </div>
 
           <div ref={transcriptionRef} className="flex-1 overflow-y-auto p-4 min-h-0">
@@ -549,88 +745,73 @@ export default function AudioSessionRoom() {
                 <p className="text-xs mt-2 text-gray-400">Powered by OpenAI Whisper</p>
               </div>
             ) : (
-              <div className="text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
-                {transcriptions.map((t, index) => (
-                  <span key={t.id}>
-                    {t.text}
-                    {index < transcriptions.length - 1 ? ' ' : ''}
-                  </span>
-                ))}
+              <div className="prose prose-sm max-w-none">
+                <p className="text-text-primary leading-relaxed">
+                  {transcriptions.map((transcription) => transcription.text).join(' ')}
+                </p>
               </div>
             )}
+          </div>
+
+          {/* AI Suggestions */}
+          {suggestions.length > 0 && (
+            <div className="border-t border-gray-100 p-4">
+              <div className="flex items-center space-x-2 mb-3">
+                <Lightbulb className="h-5 w-5 text-accent" />
+                <h3 className="font-medium text-text-primary">AI Suggestions</h3>
+              </div>
+              <div className="space-y-2">
+                {suggestions.slice(-3).map((suggestion) => (
+                  <div
+                    key={suggestion.id}
+                    className="bg-accent-background border border-accent/20 p-3 text-sm"
+                  >
+                    <p className="text-text-primary">{suggestion.content}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           </div>
         </div>
 
-        {/* Right Panel - AI Suggestions */}
-        <div className="w-96 bg-white flex flex-col min-w-0 flex-shrink-0">
-          <div className="p-4 border-b border-gray-200 flex-shrink-0">
-            <div className="flex items-center justify-between">
-              <h2 className="text-lg font-semibold text-gray-800">AI Suggestions</h2>
-              {suggestions.some(s => !s.acknowledged) && (
-                <span className="bg-red-500 text-white text-xs px-2 py-1 rounded-full">
-                  {suggestions.filter(s => !s.acknowledged).length}
-                </span>
-              )}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
-            {suggestions.length === 0 ? (
-              <div className="text-center text-gray-500 mt-8">
-                <Lightbulb className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                <p>AI suggestions will appear here during the conversation</p>
-                <p className="text-xs mt-2 text-gray-400">Powered by conversation analysis</p>
-              </div>
-            ) : (
-              suggestions.map((suggestion) => (
-                <div
-                  key={suggestion.id}
-                  className={`p-4 rounded-lg border-l-4 ${
-                    suggestion.acknowledged
-                      ? 'bg-gray-100 border-gray-300 opacity-60'
-                      : suggestion.priority === 'high'
-                      ? 'bg-red-50 border-red-400'
-                      : suggestion.priority === 'medium'
-                      ? 'bg-yellow-50 border-yellow-400'
-                      : 'bg-blue-50 border-blue-400'
-                  }`}
+        {/* Right Column - Resources */}
+        <div className="w-1/2 bg-white shadow-sm border border-border p-4 flex flex-col">
+          <h2 className="text-lg font-semibold text-text-primary mb-4">Relevant Resources</h2>
+          
+          <div className="flex-1 overflow-y-auto space-y-3">
+            {resources.map((resource) => {
+              const IconComponent = getResourceIcon(resource.type);
+              return (
+                <a
+                  key={resource.id}
+                  href={resource.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block p-4 bg-gray-50 hover:bg-gray-100 transition-colors"
                 >
-                  <div className="flex items-start justify-between mb-2">
-                    <span className={`text-xs font-medium px-2 py-1 rounded ${
-                      suggestion.type === 'followup_question'
-                        ? 'bg-blue-100 text-blue-800'
-                        : suggestion.type === 'resource'
-                        ? 'bg-green-100 text-green-800'
-                        : suggestion.type === 'action_item'
-                        ? 'bg-purple-100 text-purple-800'
-                        : 'bg-red-100 text-red-800' // concern_flag
-                    }`}>
-                      {suggestion.type.replace('_', ' ').toUpperCase()}
-                    </span>
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      suggestion.priority === 'urgent'
-                        ? 'bg-red-100 text-red-800'
-                        : suggestion.priority === 'high'
-                        ? 'bg-orange-100 text-orange-800'
-                        : suggestion.priority === 'medium'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {suggestion.priority.toUpperCase()}
-                    </span>
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 bg-accent-background rounded-lg flex items-center justify-center flex-shrink-0">
+                      <IconComponent className="h-5 w-5 text-accent" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-medium text-text-primary">{resource.title}</h4>
+                      <p className="text-sm text-text-secondary mt-1">{resource.description}</p>
+                      <div className="flex items-center space-x-2 mt-2">
+                        <span className="text-xs text-text-muted">Relevance:</span>
+                        <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                          <div
+                            className="bg-accent rounded-full h-1.5"
+                            style={{ width: `${resource.relevance * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-text-muted">{Math.round(resource.relevance * 100)}%</span>
+                      </div>
+                    </div>
                   </div>
-                  <p className="text-sm text-gray-700 mb-3">{suggestion.content}</p>
-                  {!suggestion.acknowledged && (
-                    <button
-                      onClick={() => acknowledgeSuggestion(suggestion.id)}
-                      className="text-xs bg-blue-100 hover:bg-blue-200 text-blue-800 px-3 py-1 rounded transition-colors"
-                    >
-                      Acknowledge
-                    </button>
-                  )}
-                </div>
-              ))
-            )}
+                </a>
+              );
+            })}
           </div>
         </div>
       </div>

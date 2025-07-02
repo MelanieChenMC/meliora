@@ -20,7 +20,10 @@ export async function GET(
 
     const { data: session, error } = await supabaseAdmin
       .from('sessions')
-      .select('*')
+      .select(`
+        *,
+        client:clients(id, name, age, phone, email, address, notes)
+      `)
       .eq('id', sessionId)
       .eq('clerk_user_id', userId)
       .single()
@@ -63,7 +66,7 @@ export async function PATCH(
     const updates = await request.json()
 
     // Only allow updating certain fields
-    const allowedFields = ['status', 'metadata']
+    const allowedFields = ['status', 'metadata', 'client_id']
     const filteredUpdates = Object.keys(updates)
       .filter(key => allowedFields.includes(key))
       .reduce((obj: any, key) => {

@@ -14,23 +14,58 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Client {
+  id               String   @id @default(uuid()) @db.Uuid
+  clerkUserId      String   @map("clerk_user_id") @db.VarChar(255)
+  
+  // Basic Information
+  name             String   @db.VarChar(255)
+  age              String?  @db.VarChar(10)
+  phone            String?  @db.VarChar(50)
+  email            String?  @db.VarChar(255)
+  address          String?  @db.Text
+  
+  // Additional Fields
+  dateOfBirth      DateTime? @map("date_of_birth") @db.Date
+  emergencyContact String?   @map("emergency_contact") @db.Text
+  notes            String?   @db.Text
+  tags             String[]
+  status           String    @default("active") @db.VarChar(20)
+  
+  // Timestamps
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  lastContactDate  DateTime? @map("last_contact_date") @db.Timestamptz
+  
+  // Relations
+  sessions         Session[]
+  
+  @@index([clerkUserId])
+  @@index([status])
+  @@index([name])
+  @@map("clients")
+}
+
 model Session {
   id            String   @id @default(uuid()) @db.Uuid
   scenarioType  String   @map("scenario_type") @db.VarChar(50)
   status        String   @default("active") @db.VarChar(20)
   clerkUserId   String   @map("clerk_user_id") @db.VarChar(255)
+  clientId      String?  @map("client_id") @db.Uuid
   roomName      String?  @map("room_name") @db.VarChar(255)
   metadata      Json     @default("{}")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   // Relations
+  client           Client?          @relation(fields: [clientId], references: [id])
   transcriptions   Transcription[]
   aiSuggestions    AiSuggestion[]
   sessionSummaries SessionSummary[]
 
   @@index([clerkUserId])
   @@index([status])
+  @@index([clientId])
   @@map("sessions")
 }
 
@@ -120,4 +155,10 @@ enum Priority {
   medium
   high
   urgent
+}
+
+enum ClientStatus {
+  active
+  inactive
+  archived
 }
