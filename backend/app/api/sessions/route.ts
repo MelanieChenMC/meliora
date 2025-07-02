@@ -17,7 +17,10 @@ export async function GET() {
     
     const { data: sessions, error } = await supabaseAdmin
       .from('sessions')
-      .select('*')
+      .select(`
+        *,
+        client:clients(id, name, phone, email)
+      `)
       .eq('clerk_user_id', userId)
       .order('created_at', { ascending: false })
 
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const { scenario_type, metadata } = await request.json()
+    const { scenario_type, metadata, client_id } = await request.json()
     
     // Validate scenario type
     if (!['in_person', 'call_center', 'conference'].includes(scenario_type)) {
@@ -55,6 +58,29 @@ export async function POST(request: NextRequest) {
         { error: 'Invalid scenario type' },
         { status: 400 }
       )
+    }
+
+    // If client_id is provided, verify it belongs to the user
+    if (client_id) {
+      const { data: client, error: clientError } = await supabaseAdmin
+        .from('clients')
+        .select('id')
+        .eq('id', client_id)
+        .eq('clerk_user_id', userId)
+        .single()
+
+      if (clientError || !client) {
+        return NextResponse.json(
+          { error: 'Client not found' },
+          { status: 404 }
+        )
+      }
+
+      // Update client's last contact date
+      await supabaseAdmin
+        .from('clients')
+        .update({ last_contact_date: new Date().toISOString() })
+        .eq('id', client_id)
     }
 
     const sessionId = uuidv4()
@@ -71,6 +97,7 @@ export async function POST(request: NextRequest) {
         id: sessionId,
         scenario_type,
         clerk_user_id: userId,
+        client_id: client_id || null,
         room_name: roomName,
         status: 'active',
         metadata: metadata || {}
