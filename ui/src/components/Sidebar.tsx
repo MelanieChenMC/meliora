@@ -10,7 +10,7 @@ const Sidebar: React.FC = () => {
   const navigationItems = [
     { icon: Home, label: 'Home', path: '/' },
     { icon: FileText, label: 'Sessions', path: '/sessions' },
-    { icon: Settings, label: 'Settings', path: '/settings' },
+    // { icon: Settings, label: 'Settings', path: '/settings' },
   ];
 
   const isActive = (path: string) => location.pathname === path;

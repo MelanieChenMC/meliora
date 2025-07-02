@@ -256,16 +256,8 @@ const Sessions: React.FC = () => {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Sessions</h1>
-          <p className="text-gray-600">Manage and review your AI-assisted sessions.</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Sessions</h1>
         </div>
-        <button
-          onClick={() => navigate('/')}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center space-x-2 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Session</span>
-        </button>
       </div>
 
       {/* Filters */}
