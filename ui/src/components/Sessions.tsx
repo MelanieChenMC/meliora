@@ -6,7 +6,7 @@ import { Clock, CheckCircle, Pause, Search, Filter, Plus, Users, Phone, Video, P
 interface Session {
   id: string;
   scenario_type: 'in_person' | 'call_center' | 'conference';
-  status: 'active' | 'completed' | 'paused';
+  status: 'active' | 'completed' | 'paused' | 'processing';
   created_at: string;
   room_name?: string;
   stitched_audio_url?: string;
@@ -180,6 +180,8 @@ const Sessions: React.FC = () => {
         return <CheckCircle className="w-4 h-4 text-green-500" />;
       case 'paused':
         return <Pause className="w-4 h-4 text-yellow-500" />;
+      case 'processing':
+        return <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />;
       default:
         return <Clock className="w-4 h-4 text-gray-500" />;
     }
@@ -370,6 +372,8 @@ const Sessions: React.FC = () => {
                       <span className="text-sm text-gray-900">
                         {session.status === 'active' 
                           ? 'Ongoing' 
+                          : session.status === 'processing'
+                          ? 'Processing'
                           : formatDuration(session.audio_duration || session.metadata?.duration)
                         }
                       </span>
@@ -420,6 +424,11 @@ const Sessions: React.FC = () => {
                                 }`} />
                               )}
                             </button>
+                          </div>
+                        ) : session.status === 'processing' ? (
+                          <div className="flex items-center space-x-2">
+                            <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span className="text-sm text-purple-600">Processing</span>
                           </div>
                         ) : (
                           <div className="flex items-center space-x-2">

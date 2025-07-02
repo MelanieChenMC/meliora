@@ -141,6 +141,7 @@ enum SessionStatus {
   active
   completed
   paused
+  processing
 }
 
 enum SuggestionType {

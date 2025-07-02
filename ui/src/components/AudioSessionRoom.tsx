@@ -11,7 +11,7 @@ import {
 interface Session {
   id: string;
   scenario_type: 'in_person' | 'call_center' | 'conference';
-  status: 'active' | 'completed' | 'paused';
+  status: 'active' | 'completed' | 'paused' | 'processing';
   room_name?: string;
   created_at: string;
   metadata: any;
@@ -239,29 +239,67 @@ export default function AudioSessionRoom() {
       await handleStopRecording();
     }
     
-    // Update session status to completed
     try {
       const token = await getToken();
       const backendUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
       
-      const response = await fetch(`${backendUrl}/api/sessions/${sessionId}`, {
+      // 1. Update session to processing status with end time
+      const patchResponse = await fetch(`${backendUrl}/api/sessions/${sessionId}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          status: 'completed'
+          status: 'processing',
+          metadata: {
+            ...session?.metadata,
+            end_time: new Date().toISOString(),
+            duration_seconds: sessionDuration
+          }
         }),
       });
       
-      if (!response.ok) {
+      if (!patchResponse.ok) {
         console.error('Failed to update session status');
       }
+      
+      // 2. Trigger post-processing (async - don't wait)
+      fetch(`${backendUrl}/api/sessions/${sessionId}/post-processing`, {
+        method: 'GET', // Based on current implementation
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      }).then(response => {
+        if (response.ok) {
+          console.log('Post-processing started successfully');
+          // Post-processing complete, update status to completed
+          return fetch(`${backendUrl}/api/sessions/${sessionId}`, {
+            method: 'PATCH',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              status: 'completed'
+            }),
+          });
+        } else {
+          console.error('Post-processing failed to start');
+        }
+      }).then(response => {
+        if (response?.ok) {
+          console.log('Session marked as completed');
+        }
+      }).catch(error => {
+        console.error('Error in post-processing:', error);
+      });
+      
     } catch (error) {
       console.error('Error ending session:', error);
     }
     
+    // 3. Navigate immediately (don't wait for processing)
     navigate('/');
   };
 
