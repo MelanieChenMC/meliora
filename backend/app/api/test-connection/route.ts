@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
-import { roomService } from '@/lib/livekit'
 
 export async function GET() {
   const results = {
@@ -18,14 +17,6 @@ export async function GET() {
     results.services.supabase = error ? `Error: ${error.message}` : 'Connected ✅'
   } catch (error) {
     results.services.supabase = `Error: ${error}`
-  }
-
-  // Test LiveKit connection
-  try {
-    await roomService.listRooms()
-    results.services.livekit = 'Connected ✅'
-  } catch (error) {
-    results.services.livekit = `Error: ${error}`
   }
 
   // Check environment variables

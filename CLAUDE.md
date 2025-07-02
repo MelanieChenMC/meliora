@@ -16,13 +16,13 @@ Meliora is a real-time audio transcription and AI-powered session management pla
 - Located in `/backend` directory
 - API routes in `app/api/` using Next.js App Router
 - Database: PostgreSQL with Prisma ORM
-- Key services: Clerk (auth), LiveKit (real-time), Supabase, OpenAI
+- Key services: Clerk (auth), Supabase, OpenAI
 
 ### Frontend (React)
 - Located in `/ui` directory
 - React 18 with TypeScript and React Router v6
 - Styling with Tailwind CSS
-- Real-time features using LiveKit Components and Socket.io
+- Real-time transcription using browser MediaRecorder API
 
 ## Common Commands
 
@@ -68,7 +68,7 @@ The application uses advanced audio processing with a noise gate to prevent tran
 All routes use Clerk authentication. The middleware checks for authenticated users and retrieves user information from Clerk.
 
 ### Real-time Updates
-LiveKit is used for real-time audio/video infrastructure. The frontend connects to LiveKit rooms for live transcription sessions.
+Real-time audio recording is handled client-side using the browser's MediaRecorder API. Audio chunks are sent to the backend for transcription using OpenAI Whisper.
 
 ## Development Notes
 

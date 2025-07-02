@@ -9,7 +9,7 @@ A real-time audio transcription and AI-powered session management platform that 
 - **Session Management**: Organize and manage transcription sessions
 - **Automated Summaries**: AI-generated summaries of sessions
 - **User Authentication**: Secure user management with Clerk
-- **Real-time Updates**: Live updates using LiveKit
+- **Real-time Updates**: Live transcription using browser MediaRecorder API
 
 ## Tech Stack
 
@@ -17,7 +17,6 @@ A real-time audio transcription and AI-powered session management platform that 
 - **Next.js** - Full-stack React framework
 - **Prisma** - Database ORM
 - **Supabase** - Database and backend services
-- **LiveKit** - Real-time audio/video infrastructure
 - **Clerk** - Authentication and user management
 
 ### Frontend
@@ -50,7 +49,6 @@ meliora/
 - PostgreSQL database
 - Supabase account
 - Clerk account
-- LiveKit account
 
 ### Installation
 
@@ -82,8 +80,6 @@ meliora/
    SUPABASE_URL="your-supabase-url"
    SUPABASE_ANON_KEY="your-supabase-anon-key"
    CLERK_SECRET_KEY="your-clerk-secret-key"
-   LIVEKIT_API_KEY="your-livekit-api-key"
-   LIVEKIT_API_SECRET="your-livekit-api-secret"
    ```
 
 5. **Set up the database**

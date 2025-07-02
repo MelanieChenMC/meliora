@@ -52,7 +52,6 @@ model Session {
   status        String   @default("active") @db.VarChar(20)
   clerkUserId   String   @map("clerk_user_id") @db.VarChar(255)
   clientId      String?  @map("client_id") @db.Uuid
-  roomName      String?  @map("room_name") @db.VarChar(255)
   metadata      Json     @default("{}")
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt     DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz

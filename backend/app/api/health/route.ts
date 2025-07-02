@@ -6,7 +6,6 @@ export async function GET() {
     timestamp: new Date().toISOString(),
     services: {
       database: 'connected', // We'll verify this with actual Supabase later
-      livekit: 'configured',
       clerk: 'configured'
     }
   })

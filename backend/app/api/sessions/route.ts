@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { auth } from '@clerk/nextjs'
 import { supabaseAdmin } from '@/lib/supabase'
-import { createRoom } from '@/lib/livekit'
 import { v4 as uuidv4 } from 'uuid'
 
 export async function GET() {
@@ -84,12 +83,6 @@ export async function POST(request: NextRequest) {
     }
 
     const sessionId = uuidv4()
-    
-    // Create LiveKit room for in_person and conference scenarios
-    let roomName = null
-    if (scenario_type !== 'call_center') {
-      roomName = await createRoom(sessionId, scenario_type)
-    }
 
     const { data: session, error } = await supabaseAdmin
       .from('sessions')
@@ -98,7 +91,6 @@ export async function POST(request: NextRequest) {
         scenario_type,
         clerk_user_id: userId,
         client_id: client_id || null,
-        room_name: roomName,
         status: 'active',
         metadata: metadata || {}
       })

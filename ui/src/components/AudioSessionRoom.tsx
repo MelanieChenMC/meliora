@@ -12,7 +12,6 @@ interface Session {
   id: string;
   scenario_type: 'in_person' | 'call_center' | 'conference';
   status: 'active' | 'completed' | 'paused' | 'processing';
-  room_name?: string;
   created_at: string;
   metadata: any;
 }

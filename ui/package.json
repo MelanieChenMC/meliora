@@ -4,11 +4,8 @@
   "private": true,
   "dependencies": {
     "@clerk/clerk-react": "^4.27.0",
-    "@livekit/components-react": "^1.5.3",
-    "@livekit/components-styles": "^1.1.6",
     "@supabase/supabase-js": "^2.38.0",
     "autoprefixer": "^10.4.0",
-    "livekit-client": "^1.15.13",
     "lucide-react": "^0.292.0",
     "postcss": "^8.4.0",
     "react": "^18.2.0",

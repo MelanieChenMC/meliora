@@ -18,7 +18,6 @@ interface Session {
   id: string;
   scenario_type: 'in_person' | 'call_center' | 'conference';
   status: 'active' | 'completed' | 'paused';
-  room_name?: string;
   created_at: string;
   updated_at: string;
   stitched_audio_url?: string;
